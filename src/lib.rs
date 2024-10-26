@@ -275,9 +275,24 @@ mod test {
 
     #[test]
     fn test_simple() -> Result<(), Error> {
-        struct Source { counter: usize, limit: usize }
-        struct Process;
-        struct Sink;
+        struct Source {
+            counter: usize,
+            limit: usize,
+        }
+
+        struct Process {
+            counter: usize,
+        }
+
+        struct Sink {
+            counter: usize,
+        }
+
+        #[derive(Debug, serde::Deserialize, serde::Serialize)]
+        struct Payload {
+            summary: String,
+            count: usize,
+        }
 
         impl TaskSource<String> for Source {
             type Error = Infallible;
@@ -293,29 +308,48 @@ mod test {
             }
         }
 
-        impl TaskSink<String, String> for Sink {
+        impl TaskSink<Payload, String> for Sink {
             type Error = Infallible;
 
-            fn process_task_result(&mut self, id: Uuid, result: Result<String, String>) -> Result<(), Self::Error> {
+            fn process_task_result(
+                &mut self,
+                id: Uuid,
+                result: Result<Payload, String>,
+            ) -> Result<(), Self::Error> {
                 match result {
-                    Ok(v) => { println!("task {id} processed successfully (payload: {v})") },
-                    Err(v) => { println!("task {id} failed (reason: {v})") },
+                    Ok(Payload { summary, count }) => {
+                        self.counter += 1;
+                        println!("task {id} processed successfully (payload: {summary} / {count})")
+                    }
+                    Err(v) => {
+                        println!("task {id} failed (reason: {v})")
+                    }
                 }
                 Ok(())
             }
         }
 
-        impl TaskProcessor<String, String, String> for Process {
-            fn process_task(&mut self, _id: Uuid, payload: String) -> Result<String, String> {
-                Ok(format!("hello, task:{payload}"))
+        impl TaskProcessor<String, Payload, String> for Process {
+            fn process_task(&mut self, _id: Uuid, payload: String) -> Result<Payload, String> {
+                self.counter += 1;
+
+                Ok(Payload {
+                    summary: format!("hello, task:{payload}"),
+                    count: self.counter,
+                })
             }
         }
 
-        let mut source = Source { counter: 0, limit: 1_000 };
-        let mut sink = Sink;
-        let mut process = Process;
+        let mut source = Source {
+            counter: 0,
+            limit: 1_000,
+        };
+        let mut sink = Sink { counter: 0 };
+        let mut process = Process { counter: 0 };
 
         run(&mut source, &mut process, &mut sink)?;
+
+        assert_eq!(sink.counter, 1_000);
 
         Ok(())
     }

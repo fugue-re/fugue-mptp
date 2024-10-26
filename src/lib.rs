@@ -10,6 +10,8 @@ use rand::RngCore;
 use thiserror::Error;
 use uuid::Uuid;
 
+pub mod sources;
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(transparent)]
@@ -63,33 +65,42 @@ pub struct TaskResult<T, E> {
     result: Result<T, E>,
 }
 
-pub trait TaskSource<T>: Send
-where
-    T: Clone + TaskData,
-{
+pub trait TaskSource: Send {
+    type TaskInput: Clone + TaskData;
     type Error: std::error::Error + Send + Sync + 'static;
 
-    fn next_task(&mut self, id: Uuid) -> Result<Option<T>, Self::Error>;
+    fn next_task(&mut self, id: Uuid) -> Result<Option<Self::TaskInput>, Self::Error>;
 }
 
-pub trait TaskProcessor<T, U, E>: Send {
-    fn process_task(&mut self, id: Uuid, payload: T) -> Result<U, E>;
+pub trait TaskProcessor: Send {
+    type TaskInput: Clone + TaskData;
+    type TaskOutput: TaskData;
+    type TaskError: TaskData;
+
+    fn process_task(
+        &mut self,
+        id: Uuid,
+        input: Self::TaskInput,
+    ) -> Result<Self::TaskOutput, Self::TaskError>;
 }
 
-pub trait TaskSink<T, E>: Send
-where
-    T: TaskData,
-    E: TaskData,
-{
+pub trait TaskSink: Send {
+    type TaskOutput: TaskData;
+    type TaskError: TaskData;
+
     type Error: std::error::Error + Send + Sync + 'static;
 
-    fn process_task_result(&mut self, id: Uuid, result: Result<T, E>) -> Result<(), Self::Error>;
+    fn process_task_result(
+        &mut self,
+        id: Uuid,
+        result: Result<Self::TaskOutput, Self::TaskError>,
+    ) -> Result<(), Self::Error>;
 }
 
 pub fn run<T, U, E>(
-    source: &mut impl TaskSource<T>,
-    processor: &mut impl TaskProcessor<T, U, E>,
-    sink: &mut impl TaskSink<U, E>,
+    source: &mut impl TaskSource<TaskInput = T>,
+    processor: &mut impl TaskProcessor<TaskInput = T, TaskOutput = U, TaskError = E>,
+    sink: &mut impl TaskSink<TaskOutput = U, TaskError = E>,
 ) -> Result<(), Error>
 where
     T: Clone + TaskData,
@@ -294,7 +305,9 @@ mod test {
             count: usize,
         }
 
-        impl TaskSource<String> for Source {
+        impl TaskSource for Source {
+            type TaskInput = String;
+
             type Error = Infallible;
 
             fn next_task(&mut self, id: Uuid) -> Result<Option<String>, Self::Error> {
@@ -308,7 +321,10 @@ mod test {
             }
         }
 
-        impl TaskSink<Payload, String> for Sink {
+        impl TaskSink for Sink {
+            type TaskOutput = Payload;
+            type TaskError = String;
+
             type Error = Infallible;
 
             fn process_task_result(
@@ -329,7 +345,11 @@ mod test {
             }
         }
 
-        impl TaskProcessor<String, Payload, String> for Process {
+        impl TaskProcessor for Process {
+            type TaskInput = String;
+            type TaskOutput = Payload;
+            type TaskError = String;
+
             fn process_task(&mut self, _id: Uuid, payload: String) -> Result<Payload, String> {
                 self.counter += 1;
 

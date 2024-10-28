@@ -8,7 +8,7 @@ use ipc_channel::ipc::{
 use nix::unistd::{fork, ForkResult};
 use rand::RngCore;
 use thiserror::Error;
-use uuid::Uuid;
+pub use uuid::Uuid;
 
 pub mod sources;
 
